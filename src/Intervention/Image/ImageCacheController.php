@@ -41,7 +41,7 @@ class ImageCacheController extends BaseController
         $path = $this->getImagePath($filename);
 
         // image manipulation based on callback
-        $manager = new ImageManager;
+        $manager = new ImageManager(Config::get('image'));
         $content = $manager->cache(function ($image) use ($template, $path) {
 
             if ($template instanceof Closure) {
