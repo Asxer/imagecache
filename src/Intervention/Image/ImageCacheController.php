@@ -3,10 +3,12 @@
 namespace Intervention\Image;
 
 use Closure;
+use Illuminate\Http\Request;
 use Intervention\Image\ImageManager;
 use Illuminate\Routing\Controller as BaseController;
 use Illuminate\Http\Response as IlluminateResponse;
 use Config;
+use Symfony\Component\HttpFoundation\Response;
 
 class ImageCacheController extends BaseController
 {
@@ -18,14 +20,16 @@ class ImageCacheController extends BaseController
      * @param  string $filename
      * @return Illuminate\Http\Response
      */
-    public function getResponse($template, $filename)
+    public function getResponse($template, $filename, Request $request)
     {
+        $lastModified = $request->header('If-Modified-Since');
+
         switch (strtolower($template)) {
             case 'original':
                 return $this->getOriginal($filename);
             
             default:
-                return $this->getImage($template, $filename);
+                return $this->getImage($template, $filename, $lastModified);
         }
     }
 
@@ -36,7 +40,7 @@ class ImageCacheController extends BaseController
      * @param  string $filename
      * @return Illuminate\Http\Response
      */
-    public function getImage($template, $filename)
+    public function getImage($template, $filename, $lastModified)
     {
         $template = $this->getTemplate($template);
         $path = $this->getImagePath($filename);
@@ -53,7 +57,11 @@ class ImageCacheController extends BaseController
                 $image->make($path)->filter($template);
             }
             
-        }, config('imagecache.lifetime'));
+        }, config('imagecache.lifetime'), false, $lastModified);
+
+        if ($content instanceof NotModified) {
+            return $this->buildNotModifiedResponse();
+        }
 
         return $this->buildResponse($content);
     }
@@ -134,7 +142,19 @@ class ImageCacheController extends BaseController
         return new IlluminateResponse($content, 200, array(
             'Content-Type' => $mime,
             'Cache-Control' => 'max-age='.(config('imagecache.lifetime')*60).', public',
-            'Etag' => md5($content)
+            'Etag' => md5($content),
+            'Last-Modified' => gmdate("D, d M Y H:i:s \G\M\T", time())
         ));
+    }
+
+    /**
+     * Builds HTTP no modified response
+     *
+     * @param  string $content
+     * @return Illuminate\Http\Response
+     */
+    private function buildNotModifiedResponse()
+    {
+        return new IlluminateResponse(null, Response::HTTP_NOT_MODIFIED);
     }
 }

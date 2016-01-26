@@ -2,6 +2,7 @@
 
 namespace Intervention\Image;
 
+use Carbon\Carbon;
 use Exception;
 use Illuminate\Cache\Repository as Cache;
 
@@ -288,27 +289,31 @@ class ImageCache
      * @param  bool $returnObj
      * @return mixed
      */
-    public function get($lifetime = null, $returnObj = false)
+    public function get($lifetime = null, $returnObj = false, $lastModified = null)
     {
         $lifetime = is_null($lifetime) ? $this->lifetime : intval($lifetime);
 
         $key = $this->checksum();
 
         // try to get image from cache
-        $cachedImageData = $this->cache->get($key);
+        $cachedImageData = unserialize($this->cache->get($key));
 
         // if imagedata exists in cache
         if ($cachedImageData) {
 
+            if (!empty($lastModified) && $this->checkLastModified($lastModified, $cachedImageData['last_modified'])) {
+                return new NotModified();
+            }
+
             // transform into image-object
             if ($returnObj) {
-                $image = $this->manager->make($cachedImageData);
+                $image = $this->manager->make($cachedImageData['image']);
                 $cachedImage = new CachedImage;
                 return $cachedImage->setFromOriginal($image, $key);
             }
         
             // return raw data
-            return $cachedImageData;
+            return $cachedImageData['image'];
 
         } else {
 
@@ -318,11 +323,23 @@ class ImageCache
             // encode image data only if image is not encoded yet
             $encoded = $image->encoded ? $image->encoded : (string) $image->encode();
 
+            $data = serialize([
+                'last_modified' => gmdate("D, d M Y H:i:s \G\M\T", time()),
+                'image' => $encoded
+            ]);
+
             // save to cache...
-            $this->cache->put($key, $encoded, $lifetime);
+            $this->cache->put($key, $data, $lifetime);
 
             // return processed image
             return $returnObj ? $image : $encoded;
         }
+    }
+
+    protected function checkLastModified($browserTime, $cacheTime) {
+        $browserTimestamp = Carbon::createFromFormat("D, d M Y H:i:s \G\M\T", $browserTime);
+        $cacheTimestamp = Carbon::createFromFormat("D, d M Y H:i:s \G\M\T", $cacheTime);
+
+        return $browserTimestamp > $cacheTimestamp;
     }
 }
